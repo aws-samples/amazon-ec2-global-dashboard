@@ -1,4 +1,4 @@
-## Amazon Ec2 Global Dashboard
+# Amazon Ec2 Global Dashboard
 
 Monitor how many EC2 instances are running across all regions with a simple dashboard.
 
@@ -15,18 +15,19 @@ Resources created by CloudFormation:
 - AWS::Lambda::Function  
 - AWS::Events::Rule
 
+
 The Dashboard contains two widgets:
 
--        Running Instances – Dynamic widget showing the number of running instances and historical data.
+## Running Instances
+Dynamic widget showing the number of running instances and historical data.
 The ‘Number’ widget type will show the current number of running EC2 instances in each region, this is the default view:
-
-![NumberType.png](https://raw.githubusercontent.com/aws-samples/amazon-ec2-global-dashboard/master/media/NumberType.png)
+![NumberType](media/NumberType.png)
 
 The ‘Line’ widget type will show the historical data allowing the number of running EC2 instances to be monitored over the period of time defined:
+![LineType](media/LineType.png)
 
-![LineType.png](https://raw.githubusercontent.com/aws-samples/amazon-ec2-global-dashboard/master/media/LineType.png)
-
--        Region Mapping – Maps the region name with the region code and hyperlinks to the instances in each region. 
+### Region Mapping
+Maps the region name with the region code and hyperlinks to the instances in each region. 
 
 ## License Summary
 

@@ -23,9 +23,12 @@ Resources created by CloudFormation:
 2. Go to CloudFormation in your AWS management console
 3. Select 'Create Stack' ->  'Template is ready' -> 'Upload a template file'
 4. Upload 'amazon-ec2-global-dashboard.json' -> Next
-5. Give it a name -> 'Next'
+5. Give it a name (amazon-ec2-global-dashboard) -> 'Next'
 6. No requirements on the *Configure stack options* page -> 'Next'
 7. On the *Review* page you must accept the acknowledgment to allow the stack to create an IAM Role -> 'Create stack'
+
+The stack will begin to create the resources. Give it about 15 minutes to gather and push the initial metrics.
+View your dashboard in CloudWatch management console -> Dashboards.
 
 ### Widgets
 

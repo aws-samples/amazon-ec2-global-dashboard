@@ -6,9 +6,9 @@ Monitor how many EC2 instances are running across all regions with a simple dash
 
 Amazon EC2 Global Dashboard is created with a CloudFormation template. All elements of the dashboard are handled by the CloudFormation stack.
 
-The goal of the dashboard is to give insight over all regions for how many instances are currently in a running state and over time to collect and monitor usage metrics. With the overall goal of keeping costs down and helping monitor your account.
+The goal of the dashboard is to give insight over all regions for how many instances are currently in a running state and monitor usage. With the overall goal of keeping costs down and helping monitor your account.
 
-The dashboard is populated by a Lambda function counting instances in a running state in each region, pushing them to CloudWatch as custom metrics. The stack can be created in any region.
+The dashboard is populated by a Lambda function counting instances in a running state in each region and pushing them to CloudWatch as custom metrics. The stack can be created in any region.
 
 Resources created by CloudFormation:
 - AWS::CloudWatch::Dashboard       
@@ -19,7 +19,7 @@ Resources created by CloudFormation:
 
 ### Setup
 
-1. Save the file called 'amazon-ec2-global-dashboard.json' locally.
+1. Save the file called 'amazon-ec2-global-dashboard.json' locally
 2. Go to CloudFormation in your AWS management console
 3. Select 'Create Stack' ->  'Template is ready' -> 'Upload a template file'
 4. Upload 'amazon-ec2-global-dashboard.json' -> Next

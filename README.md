@@ -19,10 +19,10 @@ Resources created by CloudFormation:
 
 ### Setup
 
-1. Save the file called 'amazon-ec2-global-dashboard.json' locally
+1. Save the file called 'amazon-ec2-global-dashboard.yaml' locally
 2. Go to CloudFormation in your AWS management console
 3. Select 'Create Stack' ->  'Template is ready' -> 'Upload a template file'
-4. Upload 'amazon-ec2-global-dashboard.json' -> 'Next'
+4. Upload 'amazon-ec2-global-dashboard.yaml' -> 'Next'
 5. Give it a name (amazon-ec2-global-dashboard) -> 'Next'
 6. No requirements on the *Configure stack options* page -> 'Next'
 7. On the *Review* page you must accept the acknowledgment to allow the stack to create an IAM Role -> 'Create stack'

@@ -1,49 +1,94 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Amazon EC2 Global Dashboard. Monitor how many EC2 instances are running across
-  all regions with a simple dashboard.
+  Amazon EC2 Global Dashboard. Monitor how many EC2 Instances are running across
+  all regions with a CloudWatch dashboard.
 Outputs:
   Region:
-    Description: Region the stack was launched in
+    Description: Region the stack was launched in.
     Value: !Ref 'AWS::Region'
+  TagBasedCounting:
+    Description: Monitor all running EC2 Instances = 'all'. Monitor by tag = 'tag'.
+    Value: !Ref TagBasedParameter
+Parameters:
+  TagBasedParameter:
+    Type: String
+    Default: all
+    Description: Monitor all running EC2 Instances = 'all'. Monitor by tag = 'tag'.
+  TagKeyParameter:
+    Type: String
+    Default: tag:amazon-ec2-global-dashboard
+    Description: The Tag Key which you would like to use. Must be formated like 'tag:YOUR_KEY_HERE'.
+  TagValueParameter:
+    Type: String
+    Default: enabled
+    Description: The Tag Value which you would like to use.    
 Resources:
   AmazonEC2GlobalDashboardFunction:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: amazon-ec2-global-dashboard
+      Environment:
+        Variables:
+          TagEnabled: !Ref TagBasedParameter        
+          VarKey: !Ref TagKeyParameter        
+          VarValue: !Ref TagValueParameter
       Code:
-        ZipFile: !Join 
-          - |+
+        ZipFile: |
+          import boto3
+          import os
+          cloudwatch = boto3.client('cloudwatch')
+          client = boto3.client('ec2')
+          TagEnabled = os.environ['TagEnabled']
+          VarKey = os.environ['VarKey']            
+          VarValue = os.environ['VarValue']
+          def lambda_handler(event, context):
+              regions = [region['RegionName'] for region in client.describe_regions()['Regions']]
+              for region in regions:
+                x = region
+                ec2 = boto3.resource('ec2', region_name=x)
+                if TagEnabled == 'all':          
+                  instances = ec2.instances.filter(
+                      Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
+                  instlist = list(instances)
+                  y = (len(instlist))
+                  cloudwatch.put_metric_data(
+                      MetricData=[
+                          {
+                              'MetricName': 'running-state',
+                              'Dimensions': [
+                                  {
+                                      'Name': 'region',
+                                      'Value': x
+                                  },
+                              ],
+                              'Unit': 'Count',
+                              'Value': y
+                          },
+                      ],
+                      Namespace='Running-instances'
+                  )
+                else:
+                  instances = ec2.instances.filter(
+                      Filters=[{'Name': 'instance-state-name', 'Values': ['running']},{'Name': VarKey, 'Values': [VarValue]}])
+                  instlist = list(instances)
+                  y = (len(instlist))
+                  cloudwatch.put_metric_data(
+                      MetricData=[
+                          {
+                              'MetricName': 'running-state',
+                              'Dimensions': [
+                                  {
+                                      'Name': 'region',
+                                      'Value': x
+                                  },
+                              ],
+                              'Unit': 'Count',
+                              'Value': y
+                          },
+                      ],
+                      Namespace='Running-instances'
+                  )
 
-          - - import boto3
-            - ec2 = boto3.resource('ec2')
-            - cloudwatch = boto3.client('cloudwatch')
-            - client = boto3.client('ec2')
-            - 'def lambda_handler(event, context):'
-            - '    regions = [region[''RegionName''] for region in client.describe_regions()[''Regions'']]'
-            - '    for region in regions:'
-            - '     x = region'
-            - '     ec2 = boto3.resource(''ec2'', region_name=x)'
-            - '     instances = ec2.instances.filter('
-            - '         Filters=[{''Name'': ''instance-state-name'', ''Values'': [''running'']}])'
-            - '     instlist = list(instances)'
-            - '     y = (len(instlist))'
-            - '     cloudwatch.put_metric_data('
-            - '         MetricData=['
-            - '             {'
-            - '                 ''MetricName'': ''running-state'','
-            - '                 ''Dimensions'': ['
-            - '                     {'
-            - '                         ''Name'': ''region'','
-            - '                         ''Value'': x'
-            - '                     },'
-            - '                 ],'
-            - '                 ''Unit'': ''Count'','
-            - '                 ''Value'': y'
-            - '             },'
-            - '         ],'
-            - '         Namespace=''Running-instances'''
-            - '     )'
       Handler: index.lambda_handler
       Runtime: python3.6
       Timeout: '30'
@@ -70,7 +115,8 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - 'ec2:Describe*'
+                  - 'ec2:DescribeRegions'
+                  - 'ec2:DescribeInstances'                  
                   - 'cloudwatch:PutMetricData'
                   - 'cloudwatch:PutDashboard'
                   - 'logs:CreateLogGroup'

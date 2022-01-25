@@ -30,6 +30,12 @@ Resources created by CloudFormation:
 The stack will begin to create the resources. Give it about 15 minutes to gather and push the initial metrics.
 View your dashboard in CloudWatch management console -> Dashboards.
 
+### New Feature
+
+Tags are an essential part of infrastructure management. You can now choose to monitor all or tagged running EC2 instances.
+This option is configured using Parameters when launching the Stack.
+If you wish to use tag-based monitoring, you can use the default `(Key=tag:amazon-ec2-global-dashboard,Value=enabled)` or provide your own.
+
 ### Widgets
 
 The Dashboard contains two widgets:

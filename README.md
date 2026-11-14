@@ -1,52 +1,73 @@
 # Amazon EC2 Global Dashboard
 
-Monitor how many EC2 instances are running across all regions with a simple dashboard.
+Monitor how many EC2 instances are running across all enabled regions with a single CloudWatch dashboard.
 
 ### Details
 
-Amazon EC2 Global Dashboard is created with a CloudFormation template. All elements of the dashboard are handled by the CloudFormation stack.
+The dashboard is created by a CloudFormation template. A Lambda function runs every 15 minutes and:
 
-The goal of the dashboard is to give insight over all regions for how many instances are currently in a running state and monitor usage. With the overall goal of keeping costs down and helping monitor your account.
+1. lists the regions enabled in your account,
+2. counts running EC2 instances in each region (optionally only those with a given tag),
+3. publishes the counts to CloudWatch as the custom metric `Running-instances` / `running-state` (dimension `region`),
+4. rebuilds the dashboard so it always matches your current regions.
 
-The dashboard is populated by a Lambda function counting instances in a running state in each region and pushing them to CloudWatch as custom metrics. The stack can be created in any region.
+The dashboard is also built when the stack is created or updated, and removed when the stack is deleted. The stack can be created in any region; the metrics and dashboard live in that region.
 
 Resources created by CloudFormation:
-- AWS::CloudWatch::Dashboard       
+- AWS::Logs::LogGroup
 - AWS::IAM::Role
-- AWS::Lambda::Permission               
-- AWS::Lambda::Function  
+- AWS::Lambda::Function
+- AWS::Lambda::Permission
 - AWS::Events::Rule
+- Custom::DashboardSync (builds and removes the `Amazon_EC2_Global_Dashboard` dashboard)
 
 ### Setup
 
-1. Save the file called 'amazon-ec2-global-dashboard.yaml' locally
-2. Go to CloudFormation in your AWS management console
-3. Select 'Create Stack' ->  'Template is ready' -> 'Upload a template file'
-4. Upload 'amazon-ec2-global-dashboard.yaml' -> 'Next'
-5. Give it a name (amazon-ec2-global-dashboard) -> 'Next'
-6. No requirements on the *Configure stack options* page -> 'Next'
-7. On the *Review* page you must accept the acknowledgment to allow the stack to create an IAM Role -> 'Create stack'
+1. Save `amazon-ec2-global-dashboard.yaml` locally.
+2. In the CloudFormation console choose **Create stack** -> **With new resources** -> **Upload a template file**.
+3. Upload the file -> **Next**.
+4. Name the stack (for example `amazon-ec2-global-dashboard`) and choose the parameters below -> **Next**.
+5. No changes are needed on *Configure stack options* -> **Next**.
+6. On *Review*, acknowledge that CloudFormation can create an IAM role -> **Create stack**.
 
-The stack will begin to create the resources. Give it about 15 minutes to gather and push the initial metrics.
-View your dashboard in CloudWatch management console -> Dashboards.
+The dashboard appears when the stack finishes creating. The stack's `DashboardUrl` output links to it.
 
-### New Feature
+Or from the CLI:
 
-Tags are an essential part of infrastructure management. You can now choose to monitor all or tagged running EC2 instances.
-This option is configured using Parameters when launching the Stack.
-If you wish to use tag-based monitoring, you can use the default `(Key=tag:amazon-ec2-global-dashboard,Value=enabled)` or provide your own.
+```
+aws cloudformation deploy --template-file amazon-ec2-global-dashboard.yaml \
+  --stack-name amazon-ec2-global-dashboard --capabilities CAPABILITY_IAM
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MonitorMode` | `all` | `all` counts every running instance. `tag` counts only running instances with the tag below. |
+| `TagKey` | `amazon-ec2-global-dashboard` | Tag key used in `tag` mode. Enter the plain key, without a `tag:` prefix. |
+| `TagValue` | `enabled` | Tag value used in `tag` mode. |
+
+> **Upgrading from the earlier version:** `TagBasedParameter`, `TagKeyParameter` and `TagValueParameter` were renamed to `MonitorMode`, `TagKey` and `TagValue`, and the key no longer takes a `tag:` prefix.
 
 ### Widgets
 
-The Dashboard contains two widgets:
-- **Running Instances** - Dynamic widget showing the number of running instances and historical data.
-- **Region mapping** – Maps the region name with the region code and hyperlinks to the instances in each region.
+- **Running Instances** - the current number of running instances per region, with a sparkline.
+- **Region mapping** - region codes and names, linked to the running instances in each region's console.
+- **Running Instances (history)** - a line graph of the same metrics over time.
 
-The ‘Number’ widget type will show the current number of running EC2 instances, this is the default view:
 ![NumberType](media/NumberType.png)
-
-The ‘Line’ widget type will show historical data:
 ![LineType](media/LineType.png)
+
+### Notes
+
+- Regions that are not enabled in your account (opt-in regions) are not included. They appear once you enable them.
+- If counting fails in a region, that region keeps its last value and the error is logged to the `/aws/lambda/amazon-ec2-global-dashboard` log group (kept for 30 days).
+- Custom metrics and dashboards are billed by CloudWatch, one metric per region. See [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/).
+- Written for the standard `aws` partition. GovCloud and China regions are not tested.
+
+## Security
+
+See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
 
 ## License Summary
 

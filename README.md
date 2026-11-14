@@ -63,6 +63,7 @@ aws cloudformation deploy --template-file amazon-ec2-global-dashboard.yaml \
 - Regions that are not enabled in your account (opt-in regions) are not included. They appear once you enable them.
 - If counting fails in a region, that region keeps its last value and the error is logged to the `/aws/lambda/amazon-ec2-global-dashboard` log group (kept for 30 days).
 - Custom metrics and dashboards are billed by CloudWatch, one metric per region. See [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/).
+- The template uses fixed resource names (function, log group, dashboard), so it can be deployed only once per region and account.
 - Written for the standard `aws` partition. GovCloud and China regions are not tested.
 
 ## Security

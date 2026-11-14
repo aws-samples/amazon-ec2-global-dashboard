@@ -1,100 +1,51 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Amazon EC2 Global Dashboard. Monitor how many EC2 Instances are running across
-  all regions with a CloudWatch dashboard.
-Outputs:
-  Region:
-    Description: Region the stack was launched in.
-    Value: !Ref 'AWS::Region'
-  TagBasedCounting:
-    Description: Monitor all running EC2 Instances = 'all'. Monitor by tag = 'tag'.
-    Value: !Ref TagBasedParameter
+  Amazon EC2 Global Dashboard. Monitor how many EC2 instances are running across
+  all enabled regions with a CloudWatch dashboard that is rebuilt automatically.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Monitoring scope
+        Parameters:
+          - MonitorMode
+          - TagKey
+          - TagValue
+    ParameterLabels:
+      MonitorMode:
+        default: Which instances to count
+      TagKey:
+        default: Tag key (tag mode only)
+      TagValue:
+        default: Tag value (tag mode only)
+
 Parameters:
-  TagBasedParameter:
+  MonitorMode:
     Type: String
     Default: all
-    Description: Monitor all running EC2 Instances = 'all'. Monitor by tag = 'tag'.
-  TagKeyParameter:
+    AllowedValues:
+      - all
+      - tag
+    Description: "'all' counts every running EC2 instance. 'tag' counts only running instances matching TagKey and TagValue."
+  TagKey:
     Type: String
-    Default: tag:amazon-ec2-global-dashboard
-    Description: The Tag Key which you would like to use. Must be formated like 'tag:YOUR_KEY_HERE'.
-  TagValueParameter:
+    Default: amazon-ec2-global-dashboard
+    MinLength: 1
+    Description: Tag key to filter on when MonitorMode is 'tag'. Enter the plain key, without a 'tag:' prefix.
+  TagValue:
     Type: String
     Default: enabled
-    Description: The Tag Value which you would like to use.    
-Resources:
-  AmazonEC2GlobalDashboardFunction:
-    Type: 'AWS::Lambda::Function'
-    Properties:
-      FunctionName: amazon-ec2-global-dashboard
-      Environment:
-        Variables:
-          TagEnabled: !Ref TagBasedParameter        
-          VarKey: !Ref TagKeyParameter        
-          VarValue: !Ref TagValueParameter
-      Code:
-        ZipFile: |
-          import boto3
-          import os
-          cloudwatch = boto3.client('cloudwatch')
-          client = boto3.client('ec2')
-          TagEnabled = os.environ['TagEnabled']
-          VarKey = os.environ['VarKey']            
-          VarValue = os.environ['VarValue']
-          def lambda_handler(event, context):
-              regions = [region['RegionName'] for region in client.describe_regions()['Regions']]
-              for region in regions:
-                x = region
-                ec2 = boto3.resource('ec2', region_name=x)
-                if TagEnabled == 'all':          
-                  instances = ec2.instances.filter(
-                      Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
-                  instlist = list(instances)
-                  y = (len(instlist))
-                  cloudwatch.put_metric_data(
-                      MetricData=[
-                          {
-                              'MetricName': 'running-state',
-                              'Dimensions': [
-                                  {
-                                      'Name': 'region',
-                                      'Value': x
-                                  },
-                              ],
-                              'Unit': 'Count',
-                              'Value': y
-                          },
-                      ],
-                      Namespace='Running-instances'
-                  )
-                else:
-                  instances = ec2.instances.filter(
-                      Filters=[{'Name': 'instance-state-name', 'Values': ['running']},{'Name': VarKey, 'Values': [VarValue]}])
-                  instlist = list(instances)
-                  y = (len(instlist))
-                  cloudwatch.put_metric_data(
-                      MetricData=[
-                          {
-                              'MetricName': 'running-state',
-                              'Dimensions': [
-                                  {
-                                      'Name': 'region',
-                                      'Value': x
-                                  },
-                              ],
-                              'Unit': 'Count',
-                              'Value': y
-                          },
-                      ],
-                      Namespace='Running-instances'
-                  )
+    MinLength: 1
+    Description: Tag value to filter on when MonitorMode is 'tag'.
 
-      Handler: index.lambda_handler
-      Runtime: python3.6
-      Timeout: '30'
-      Role: !GetAtt 
-        - LambdaExecutionRole
-        - Arn
+Resources:
+  FunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: /aws/lambda/amazon-ec2-global-dashboard
+      RetentionInDays: 30
+
   LambdaExecutionRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -103,85 +54,237 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Service:
-                - lambda.amazonaws.com
-            Action:
-              - 'sts:AssumeRole'
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
       Path: /
       Policies:
-        - PolicyName: root
+        - PolicyName: amazon-ec2-global-dashboard
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-              - Effect: Allow
+              - Sid: DescribeEC2
+                Effect: Allow
                 Action:
                   - 'ec2:DescribeRegions'
-                  - 'ec2:DescribeInstances'                  
-                  - 'cloudwatch:PutMetricData'
+                  - 'ec2:DescribeInstances'
+                Resource: '*'
+              - Sid: PutMetrics
+                Effect: Allow
+                Action: 'cloudwatch:PutMetricData'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'cloudwatch:namespace': Running-instances
+              - Sid: ManageDashboard
+                Effect: Allow
+                Action:
                   - 'cloudwatch:PutDashboard'
-                  - 'logs:CreateLogGroup'
+                  - 'cloudwatch:DeleteDashboards'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudwatch::${AWS::AccountId}:dashboard/Amazon_EC2_Global_Dashboard'
+              - Sid: WriteLogs
+                Effect: Allow
+                Action:
                   - 'logs:CreateLogStream'
                   - 'logs:PutLogEvents'
-                Resource: '*'
+                Resource: !GetAtt FunctionLogGroup.Arn
+
+  AmazonEC2GlobalDashboardFunction:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: FunctionLogGroup
+    Properties:
+      FunctionName: amazon-ec2-global-dashboard
+      Description: Counts running EC2 instances in every enabled region, publishes the counts to CloudWatch and rebuilds the dashboard.
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Timeout: 120
+      MemorySize: 256
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          MONITOR_MODE: !Ref MonitorMode
+          TAG_KEY: !Ref TagKey
+          TAG_VALUE: !Ref TagValue
+          DASHBOARD_NAME: Amazon_EC2_Global_Dashboard
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import math
+          import os
+          from concurrent.futures import ThreadPoolExecutor
+
+          import boto3
+          import cfnresponse
+          from botocore.config import Config
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          MONITOR_MODE = os.environ['MONITOR_MODE']
+          TAG_KEY = os.environ['TAG_KEY']
+          TAG_VALUE = os.environ['TAG_VALUE']
+          DASHBOARD_NAME = os.environ['DASHBOARD_NAME']
+          HOME_REGION = os.environ['AWS_REGION']
+
+          NAMESPACE = 'Running-instances'
+          METRIC_NAME = 'running-state'
+          PERIOD_SECONDS = 900
+
+          BOTO_CONFIG = Config(retries={'max_attempts': 5, 'mode': 'standard'})
+          cloudwatch = boto3.client('cloudwatch', config=BOTO_CONFIG)
+          ec2 = boto3.client('ec2', config=BOTO_CONFIG)
+
+          # Display names are cosmetic. Regions not listed here are shown by code.
+          REGION_NAMES = {
+              'us-east-1': 'US East (N. Virginia)',
+              'us-east-2': 'US East (Ohio)',
+              'us-west-1': 'US West (N. California)',
+              'us-west-2': 'US West (Oregon)',
+              'af-south-1': 'Africa (Cape Town)',
+              'ap-east-1': 'Asia Pacific (Hong Kong)',
+              'ap-south-1': 'Asia Pacific (Mumbai)',
+              'ap-south-2': 'Asia Pacific (Hyderabad)',
+              'ap-southeast-1': 'Asia Pacific (Singapore)',
+              'ap-southeast-2': 'Asia Pacific (Sydney)',
+              'ap-southeast-3': 'Asia Pacific (Jakarta)',
+              'ap-southeast-4': 'Asia Pacific (Melbourne)',
+              'ap-southeast-5': 'Asia Pacific (Malaysia)',
+              'ap-southeast-7': 'Asia Pacific (Thailand)',
+              'ap-northeast-1': 'Asia Pacific (Tokyo)',
+              'ap-northeast-2': 'Asia Pacific (Seoul)',
+              'ap-northeast-3': 'Asia Pacific (Osaka)',
+              'ca-central-1': 'Canada (Central)',
+              'ca-west-1': 'Canada West (Calgary)',
+              'eu-central-1': 'Europe (Frankfurt)',
+              'eu-central-2': 'Europe (Zurich)',
+              'eu-west-1': 'Europe (Ireland)',
+              'eu-west-2': 'Europe (London)',
+              'eu-west-3': 'Europe (Paris)',
+              'eu-north-1': 'Europe (Stockholm)',
+              'eu-south-1': 'Europe (Milan)',
+              'eu-south-2': 'Europe (Spain)',
+              'il-central-1': 'Israel (Tel Aviv)',
+              'me-south-1': 'Middle East (Bahrain)',
+              'me-central-1': 'Middle East (UAE)',
+              'mx-central-1': 'Mexico (Central)',
+              'sa-east-1': 'South America (Sao Paulo)',
+          }
+
+
+          def count_running(region):
+              """Return (region, running instance count), or (region, None) on failure."""
+              filters = [{'Name': 'instance-state-name', 'Values': ['running']}]
+              if MONITOR_MODE == 'tag':
+                  filters.append({'Name': 'tag:' + TAG_KEY, 'Values': [TAG_VALUE]})
+              try:
+                  client = boto3.client('ec2', region_name=region, config=BOTO_CONFIG)
+                  count = 0
+                  for page in client.get_paginator('describe_instances').paginate(Filters=filters):
+                      count += sum(len(r['Instances']) for r in page['Reservations'])
+                  return region, count
+              except Exception:
+                  logger.exception('Could not count instances in %s', region)
+                  return region, None
+
+
+          def build_dashboard(regions):
+              metrics = [[NAMESPACE, METRIC_NAME, 'region', r] for r in regions]
+              height = max(6, math.ceil(len(regions) * 0.75))
+              rows = ['# Region mapping', 'Code|Name', '----|----']
+              for r in regions:
+                  url = ('https://%s.console.aws.amazon.com/ec2/home?region=%s'
+                         '#Instances:instanceState=running;sort=instanceId' % (r, r))
+                  rows.append('[%s](%s)|%s' % (r, url, REGION_NAMES.get(r, r)))
+              return json.dumps({'widgets': [
+                  {'type': 'metric', 'x': 0, 'y': 0, 'width': 12, 'height': height,
+                   'properties': {'metrics': metrics, 'region': HOME_REGION, 'view': 'singleValue',
+                                  'sparkline': True, 'period': PERIOD_SECONDS, 'stat': 'Maximum',
+                                  'title': 'Running Instances'}},
+                  {'type': 'text', 'x': 12, 'y': 0, 'width': 6, 'height': height,
+                   'properties': {'markdown': '\n'.join(rows) + '\n'}},
+                  {'type': 'metric', 'x': 0, 'y': height, 'width': 18, 'height': 8,
+                   'properties': {'metrics': metrics, 'region': HOME_REGION, 'view': 'timeSeries',
+                                  'stacked': False, 'period': PERIOD_SECONDS, 'stat': 'Maximum',
+                                  'title': 'Running Instances (history)'}},
+              ]})
+
+
+          def sync():
+              regions = sorted(r['RegionName'] for r in ec2.describe_regions()['Regions'])
+              with ThreadPoolExecutor(max_workers=10) as pool:
+                  results = list(pool.map(count_running, regions))
+
+              data = [{'MetricName': METRIC_NAME,
+                       'Dimensions': [{'Name': 'region', 'Value': region}],
+                       'Unit': 'Count', 'Value': count}
+                      for region, count in results if count is not None]
+              for i in range(0, len(data), 150):
+                  cloudwatch.put_metric_data(Namespace=NAMESPACE, MetricData=data[i:i + 150])
+
+              cloudwatch.put_dashboard(DashboardName=DASHBOARD_NAME, DashboardBody=build_dashboard(regions))
+
+              failed = [region for region, count in results if count is None]
+              if failed:
+                  raise RuntimeError('Failed to count instances in: ' + ', '.join(failed))
+
+
+          def handle_custom_resource(event, context):
+              status = cfnresponse.SUCCESS
+              reason = None
+              try:
+                  if event['RequestType'] == 'Delete':
+                      cloudwatch.delete_dashboards(DashboardNames=[DASHBOARD_NAME])
+                  else:
+                      sync()
+              except Exception as e:
+                  # Never fail the stack over this; the schedule retries every 15 minutes.
+                  logger.exception('Custom resource %s failed', event['RequestType'])
+                  reason = str(e)
+              cfnresponse.send(event, context, status, {}, DASHBOARD_NAME, reason=reason)
+
+
+          def lambda_handler(event, context):
+              if 'RequestType' in event:
+                  return handle_custom_resource(event, context)
+              sync()
+
   ScheduledRule:
     Type: 'AWS::Events::Rule'
     Properties:
-      Description: Amazon EC2 Global Dashboard rule.
+      Description: Amazon EC2 Global Dashboard schedule.
       ScheduleExpression: rate(15 minutes)
       State: ENABLED
       Targets:
-        - Arn: !GetAtt 
-            - AmazonEC2GlobalDashboardFunction
-            - Arn
+        - Arn: !GetAtt AmazonEC2GlobalDashboardFunction.Arn
           Id: AmazonEC2GlobalDashboardFunction
+
   PermissionForEventsToInvokeLambda:
     Type: 'AWS::Lambda::Permission'
     Properties:
       FunctionName: !Ref AmazonEC2GlobalDashboardFunction
       Action: 'lambda:InvokeFunction'
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt 
-        - ScheduledRule
-        - Arn
-  Dashboard:
-    Type: 'AWS::CloudWatch::Dashboard'
+      SourceArn: !GetAtt ScheduledRule.Arn
+
+  # Builds the dashboard immediately on create/update and removes it on delete.
+  DashboardSync:
+    Type: 'Custom::DashboardSync'
+    DependsOn:
+      - FunctionLogGroup
+      - LambdaExecutionRole
     Properties:
-      DashboardName: Amazon_EC2_Global_Dashboard
-      DashboardBody: !Join 
-        - ''
-        - - >-
-            {"widgets":[{"type":"metric","x":0,"y":0,"width":12,"height":16,"properties":{"metrics":[["Running-instances","running-state","region","us-east-1"],[".",".",".","us-east-2"],[".",".",".","us-west-1"],[".",".",".","us-west-2"],[".",".",".","ca-central-1"],[".",".",".","eu-central-1"],[".",".",".","eu-west-1"],[".",".",".","eu-west-2"],[".",".",".","eu-west-3"],[".",".",".","eu-north-1"],[".",".",".","ap-northeast-1"],[".",".",".","ap-northeast-2"],[".",".",".","ap-northeast-3"],[".",".",".","ap-southeast-1"],[".",".",".","ap-southeast-2"],[".",".",".","ap-south-1"],[".",".",".","sa-east-1"]],"region":"
-          - !Ref 'AWS::Region'
-          - >-
-            ","view":"singleValue","period":900,"stat":"Maximum","title":"Running
-            Instances"}},
-            {"type":"text","x":12,"y":0,"width":6,"height":16,"properties":{"markdown":"#
-            Region
-            mapping\nCode|Name\n----|----\n[us-east-1](https://us-east-1.console.aws.amazon.com/ec2/v2/home?region=us-east-1#Instances:sort=instanceId)|US
-            East (N.
-            Virginia)\n[us-east-2](https://us-east-2.console.aws.amazon.com/ec2/v2/home?region=us-east-2#Instances:sort=instanceId)|US
-            East
-            (Ohio)\n[us-west-1](https://us-west-1.console.aws.amazon.com/ec2/v2/home?region=us-west-1#Instances:sort=instanceId)|US
-            West (N.
-            California)\n[us-west-2](https://us-west-2.console.aws.amazon.com/ec2/v2/home?region=us-west-2#Instances:sort=instanceId)|US
-            West
-            (Oregon)\n[ca-central-1](https://ca-central-1.console.aws.amazon.com/ec2/v2/home?region=ca-central-1#Instances:sort=instanceId)|Canada
-            (Central)\n[eu-central-1](https://eu-central-1.console.aws.amazon.com/ec2/v2/home?region=eu-central-1#Instances:sort=instanceId)|EU
-            (Frankfurt)\n[eu-west-1](https://eu-west-1.console.aws.amazon.com/ec2/v2/home?region=eu-west-1#Instances:sort=instanceId)|EU
-            (Ireland)\n[eu-west-2](https://eu-west-2.console.aws.amazon.com/ec2/v2/home?region=eu-west-2#Instances:sort=instanceId)|EU
-            (London)\n[eu-west-3](https://eu-west-3.console.aws.amazon.com/ec2/v2/home?region=eu-west-3#Instances:sort=instanceId)|EU
-            (Paris)\n[eu-north-1](https://eu-north-1.console.aws.amazon.com/ec2/v2/home?region=eu-north-1#Instances:sort=instanceId)|EU
-            (Stockholm)\n[ap-northeast-1](https://ap-northeast-1.console.aws.amazon.com/ec2/v2/home?region=ap-northeast-1#Instances:sort=instanceId)|Asia
-            Pacific
-            (Tokyo)\n[ap-northeast-2](https://ap-northeast-2.console.aws.amazon.com/ec2/v2/home?region=ap-northeast-2#Instances:sort=instanceId)|Asia
-            Pacific
-            (Seoul)\n[ap-northeast-3](https://ap-northeast-3.console.aws.amazon.com/ec2/v2/home?region=ap-northeast-3#Instances:sort=instanceId)|Asia
-            Pacific
-            (Osaka-Local)\n[ap-southeast-1](https://ap-southeast-1.console.aws.amazon.com/ec2/v2/home?region=ap-southeast-1#Instances:sort=instanceId)|Asia
-            Pacific
-            (Singapore)\n[ap-southeast-2](https://ap-southeast-2.console.aws.amazon.com/ec2/v2/home?region=ap-southeast-2#Instances:sort=instanceId)|Asia
-            Pacific
-            (Sydney)\n[ap-south-1](https://ap-south-1.console.aws.amazon.com/ec2/v2/home?region=ap-south-1#Instances:sort=instanceId)|Asia
-            Pacific
-            (Mumbai)\n[sa-east-1](https://sa-east-1.console.aws.amazon.com/ec2/v2/home?region=sa-east-1#Instances:sort=instanceId)|South
-            America (São Paulo)\n"}}]}
+      ServiceToken: !GetAtt AmazonEC2GlobalDashboardFunction.Arn
+      MonitorMode: !Ref MonitorMode
+      TagKey: !Ref TagKey
+      TagValue: !Ref TagValue
+
+Outputs:
+  Region:
+    Description: Region the stack was launched in.
+    Value: !Ref 'AWS::Region'
+  MonitorMode:
+    Description: "'all' = every running instance. 'tag' = only instances matching the tag."
+    Value: !Ref MonitorMode
+  DashboardUrl:
+    Description: CloudWatch dashboard.
+    Value: !Sub 'https://${AWS::Region}.console.${AWS::Partition}.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=Amazon_EC2_Global_Dashboard'
